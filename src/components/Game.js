@@ -36,6 +36,7 @@ const Game = () => {
 
   useEffect(() => {
     if (!roomCode) return;
+    console.log(showTrumpRequest);
 
     const gameRef = ref(database, `games/${roomCode}`);
     const unsubscribe = onValue(gameRef, (snapshot) => {
