@@ -274,7 +274,7 @@ const Game = () => {
     // Check if trick is being displayed (10 second delay)
     if (gameData.trickCompletedAt) {
       const timeSinceComplete = Date.now() - gameData.trickCompletedAt;
-      if (timeSinceComplete < 5000) {
+      if (timeSinceComplete < 3000) {
         setError("Please wait while the trick is being displayed");
         return;
       }
