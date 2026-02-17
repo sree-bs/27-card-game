@@ -10,6 +10,7 @@ import {
   getTrickWinner,
   canPlayCard,
   calculateBidValidity,
+  canPlayerBid,
   getTotalPoints,
   getCardPoints,
   canAskForTrump,
@@ -26,7 +27,6 @@ const Game = () => {
   const [bidAmount, setBidAmount] = useState(14);
   const [showConfetti, setShowConfetti] = useState(false);
   const [error, setError] = useState('');
-  const [showTrumpRequest, setShowTrumpRequest] = useState(false);
 
   useEffect(() => {
     if (!playerId) {
@@ -36,7 +36,6 @@ const Game = () => {
 
   useEffect(() => {
     if (!roomCode) return;
-    
 
     const gameRef = ref(database, `games/${roomCode}`);
     const unsubscribe = onValue(gameRef, (snapshot) => {
@@ -162,7 +161,8 @@ const Game = () => {
       team2Score: 0,
       team1Tricks: [],
       team2Tricks: [],
-      trumpAskedBy: null
+      trumpAskedBy: null,
+      trickCompletedAt: null
     });
   };
 
@@ -173,6 +173,12 @@ const Game = () => {
 
     if (currentPlayerPosition !== gameData.currentBidder) {
       setError("Not your turn to bid");
+      return;
+    }
+
+    // Rule 2: Check if player can bid (team restriction)
+    if (bid !== 'pass' && !canPlayerBid(playerId, gameData.players, gameData)) {
+      setError("Your teammate has the highest bid. You can only bid after an opponent raises.");
       return;
     }
 
@@ -252,8 +258,6 @@ const Game = () => {
       trumpRevealed: true
     });
 
-    setShowTrumpRequest(false);
-    console.log(showTrumpRequest);
     setError('');
   };
 
@@ -265,6 +269,15 @@ const Game = () => {
     if (currentPlayerPosition !== gameData.currentPlayer) {
       setError("Not your turn");
       return;
+    }
+
+    // Check if trick is being displayed (10 second delay)
+    if (gameData.trickCompletedAt) {
+      const timeSinceComplete = Date.now() - gameData.trickCompletedAt;
+      if (timeSinceComplete < 5000) {
+        setError("Please wait while the trick is being displayed");
+        return;
+      }
     }
 
     const playerHand = gameData.hands[playerId];
@@ -281,7 +294,11 @@ const Game = () => {
     }
 
     if (!canPlayCard(card, playerHand, currentTrick, gameData.trumpCard, gameData.trumpRevealed, isBidWinner)) {
-      setError("Can't play this card. Must follow suit or trump rules apply.");
+      if (isBidWinner && currentTrick.length === 0 && card.suit === gameData.trumpCard?.suit && !gameData.trumpRevealed) {
+        setError("You cannot lead with trump suit until trump is revealed");
+      } else {
+        setError("Can't play this card. Must follow suit or trump rules apply.");
+      }
       return;
     }
 
@@ -315,11 +332,16 @@ const Game = () => {
       const teamTricks = [...(gameData[`${winningTeam}Tricks`] || []), newTrick];
       
       updates.tricks = allTricks;
-      updates.currentTrick = [];
-      updates.currentPlayer = winnerPosition;
       updates[`${winningTeam}Tricks`] = teamTricks;
       updates.trumpAskedBy = null;
       updates.trumpPlayedAfterAsk = false;
+      
+      // Set trick completed timestamp for 10 second display
+      updates.trickCompletedAt = Date.now();
+      updates.nextPlayer = winnerPosition;
+
+      // Don't clear the trick or update current player yet
+      // This will be done after 10 seconds
 
       if (allTricks.length === 8) {
         const team1Points = getTotalPoints(gameData.team1Tricks || []);
@@ -336,6 +358,17 @@ const Game = () => {
         updates.team1Score = finalTeam1Points;
         updates.team2Score = finalTeam2Points;
         updates.bidMade = biddingTeamPoints >= gameData.highestBid;
+        updates.trickCompletedAt = null;
+      } else {
+        // Schedule clearing the trick after 10 seconds
+        setTimeout(async () => {
+          const clearRef = ref(database, `games/${roomCode}`);
+          await update(clearRef, {
+            currentTrick: [],
+            currentPlayer: winnerPosition,
+            trickCompletedAt: null
+          });
+        }, 10000);
       }
     } else {
       updates.currentPlayer = (gameData.currentPlayer + 1) % 4;
@@ -343,7 +376,6 @@ const Game = () => {
 
     await update(gameRef, updates);
     setSelectedCard(null);
-    setShowTrumpRequest(false);
     setError('');
   };
 
@@ -368,7 +400,9 @@ const Game = () => {
       team1Tricks: [],
       team2Tricks: [],
       trumpAskedBy: null,
-      trumpPlayedAfterAsk: false
+      trumpPlayedAfterAsk: false,
+      trickCompletedAt: null,
+      nextPlayer: null
     });
     setShowConfetti(false);
     setGameState('lobby');
@@ -505,6 +539,9 @@ const Game = () => {
     const isMyTurn = currentBidderPos === myPosition;
     const myInitialHand = gameData?.hands?.[playerId] || [];
 
+    // Check if current player can bid (for UI feedback)
+    const canBid = isMyTurn && canPlayerBid(playerId, gameData.players, gameData);
+
     if (gameData?.phase === 'trumpSelection') {
       const isBidWinner = gameData.bidWinner === playerId;
 
@@ -522,6 +559,7 @@ const Game = () => {
                 <p className="bid-info">🏆 Congratulations! Your bid: <strong>{gameData.highestBid} points</strong></p>
                 <p className="trump-instruction">Select any card from your hand as the trump card</p>
                 <p className="trump-note">⚠️ This card's suit will be trump. The card will be hidden from other players.</p>
+                <p className="trump-note">⚠️ You cannot lead with trump suit cards until trump is revealed.</p>
                 
                 <div className="initial-cards-display">
                   <h4>Select Your Trump Card:</h4>
@@ -575,20 +613,21 @@ const Game = () => {
           <h2>Bidding Phase</h2>
           
           <div className="game-instructions">
-            <h4>📋 How to Play:</h4>
+            <h4>📋 Game Rules:</h4>
             <ul>
               <li>✓ You have 4 cards to start</li>
               <li>✓ Bid between 14-28 points (or pass)</li>
+              <li>✓ Teammates can't overbid each other (opponent must raise first)</li>
               <li>✓ Bid winner selects a trump card (hidden from others)</li>
+              <li>✓ Bid winner cannot lead with trump suit until revealed</li>
               <li>✓ You'll get 4 more cards after trump selection</li>
-              <li>✓ Players can ask to reveal trump during play</li>
             </ul>
           </div>
 
           <div className="bidding-info">
             <p>Current Highest Bid: <strong>{gameData?.highestBid || 'None'}</strong></p>
             {gameData?.bidWinner && (
-              <p>Leading Bidder: <strong>{players[gameData.bidWinner]?.name}</strong></p>
+              <p>Leading Bidder: <strong>{players[gameData.bidWinner]?.name}</strong> (Team {(players[gameData.bidWinner]?.position % 2) + 1})</p>
             )}
           </div>
 
@@ -611,7 +650,9 @@ const Game = () => {
                   key={pid}
                   className={`player-bid-status ${player.position === currentBidderPos ? 'active' : ''}`}
                 >
-                  <span className="player-name-bid">{player.name}</span>
+                  <span className="player-name-bid">
+                    {player.name} <span className="team-tag">(Team {(player.position % 2) + 1})</span>
+                  </span>
                   <span className="bid-value">
                     {gameData?.bids?.[pid] === 'pass' ? 'Pass' : (gameData?.bids?.[pid] || '...')}
                   </span>
@@ -621,6 +662,12 @@ const Game = () => {
 
           {isMyTurn && (
             <div className="bid-controls">
+              {!canBid && gameData?.bidWinner && (
+                <div className="team-restriction-notice">
+                  ⚠️ Your teammate holds the highest bid. Wait for an opponent to raise before you can bid.
+                </div>
+              )}
+              
               <div className="bid-input-group">
                 <input
                   type="range"
@@ -629,6 +676,7 @@ const Game = () => {
                   value={bidAmount}
                   onChange={(e) => setBidAmount(parseInt(e.target.value))}
                   className="bid-slider"
+                  disabled={!canBid}
                 />
                 <span className="bid-amount-display">{bidAmount}</span>
               </div>
@@ -637,7 +685,7 @@ const Game = () => {
                 <button 
                   onClick={() => placeBid(bidAmount)} 
                   className="btn btn-primary"
-                  disabled={!calculateBidValidity(bidAmount, gameData?.highestBid)}
+                  disabled={!canBid || !calculateBidValidity(bidAmount, gameData?.highestBid)}
                 >
                   Bid {bidAmount}
                 </button>
@@ -671,9 +719,12 @@ const Game = () => {
     const trumpRevealed = gameData?.trumpRevealed;
 
     const canAskTrump = isMyTurn && canAskForTrump(myHand, currentTrick, trumpCard, trumpRevealed);
-    
-    // Check if player needs to play trump after asking
     const mustPlayTrump = gameData?.trumpAskedBy === playerId && !gameData?.trumpPlayedAfterAsk;
+
+    // Check if trick is being displayed
+    const trickDisplaying = gameData?.trickCompletedAt && 
+      (Date.now() - gameData.trickCompletedAt < 10000) &&
+      currentTrick.length === 4;
 
     return (
       <div className="playing-container">
@@ -704,9 +755,21 @@ const Game = () => {
           </div>
         </div>
 
-        {mustPlayTrump && (
+        {trickDisplaying && (
+          <div className="trick-display-notice">
+            ⏳ Displaying completed trick... Next player: {players[Object.entries(players).find(([_, p]) => p.position === gameData.nextPlayer)?.[0]]?.name}
+          </div>
+        )}
+
+        {mustPlayTrump && !trickDisplaying && (
           <div className="trump-warning">
             ⚠️ You must play a trump suit card ({getSuitSymbol(trumpCard.suit)}) because you asked for trump!
+          </div>
+        )}
+
+        {isBidWinner && !trumpRevealed && currentTrick.length === 0 && !trickDisplaying && (
+          <div className="trump-lead-restriction">
+            ℹ️ You cannot lead with trump suit ({getSuitSymbol(trumpCard.suit)}) cards until trump is revealed.
           </div>
         )}
 
@@ -733,7 +796,7 @@ const Game = () => {
                     </motion.div>
                   ) : (
                     <div className="trick-card-placeholder">
-                      {position === gameData?.currentPlayer && <div className="active-indicator">▼</div>}
+                      {position === gameData?.currentPlayer && !trickDisplaying && <div className="active-indicator">▼</div>}
                     </div>
                   )}
                 </div>
@@ -745,13 +808,13 @@ const Game = () => {
         <div className="hand-container">
           <h3>
             Your Hand 
-            {isMyTurn && <span className="your-turn-indicator">● Your Turn</span>}
+            {isMyTurn && !trickDisplaying && <span className="your-turn-indicator">● Your Turn</span>}
           </h3>
           <div className="hand-cards">
             <AnimatePresence>
               {myHand.map((card, index) => {
                 const isTrumpCard = isBidWinner && trumpCard && card.id === trumpCard.id;
-                const canPlay = isMyTurn && canPlayCard(card, myHand, currentTrick, trumpCard, trumpRevealed, isBidWinner);
+                const canPlay = isMyTurn && !trickDisplaying && canPlayCard(card, myHand, currentTrick, trumpCard, trumpRevealed, isBidWinner);
                 
                 return (
                   <motion.div
@@ -760,8 +823,8 @@ const Game = () => {
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: -100, opacity: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className={`hand-card ${selectedCard?.id === card.id ? 'selected' : ''} ${!isMyTurn || !canPlay ? 'disabled' : ''} ${isTrumpCard && !trumpRevealed ? 'trump-card-highlight' : ''}`}
-                    onClick={() => isMyTurn && canPlay && setSelectedCard(card)}
+                    className={`hand-card ${selectedCard?.id === card.id ? 'selected' : ''} ${!isMyTurn || !canPlay || trickDisplaying ? 'disabled' : ''} ${isTrumpCard && !trumpRevealed ? 'trump-card-highlight' : ''}`}
+                    onClick={() => isMyTurn && canPlay && !trickDisplaying && setSelectedCard(card)}
                   >
                     {renderCard(card, true)}
                     {isTrumpCard && !trumpRevealed && (
@@ -774,7 +837,7 @@ const Game = () => {
           </div>
 
           <div className="play-controls">
-            {isMyTurn && selectedCard && (
+            {isMyTurn && selectedCard && !trickDisplaying && (
               <motion.button
                 initial={{ scale: 0.8 }}
                 animate={{ scale: 1 }}
@@ -785,7 +848,7 @@ const Game = () => {
               </motion.button>
             )}
 
-            {canAskTrump && (
+            {canAskTrump && !trickDisplaying && (
               <motion.button
                 initial={{ scale: 0.8 }}
                 animate={{ scale: 1 }}

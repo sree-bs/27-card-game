@@ -93,14 +93,26 @@ export const getTrickWinner = (trick, leadSuit, trumpCard) => {
 };
 
 export const canPlayCard = (card, hand, trick, trumpCard, trumpRevealed, isBidWinner) => {
-  // First card of trick can be anything
+  // First card of trick
   if (trick.length === 0 || !trick[0]) {
+    // Rule 1: Bid winner cannot lead with trump suit (unless trump is revealed or only has trump suit cards)
+    if (isBidWinner && trumpCard && card.suit === trumpCard.suit) {
+      // Check if player has any non-trump suit cards
+      const hasNonTrumpCards = hand.some(c => c.suit !== trumpCard.suit);
+      
+      // Can only play trump suit if:
+      // 1. Trump is revealed, OR
+      // 2. Player only has trump suit cards
+      if (!trumpRevealed && hasNonTrumpCards) {
+        return false;
+      }
+    }
+
     // If you're the bid winner and trump is not revealed
     if (isBidWinner && trumpCard && !trumpRevealed) {
-      // Can't play the trump card unless it's the only card of that suit
+      // Can't play the specific trump card unless it's the only card of that suit
       if (card.id === trumpCard.id) {
         const sameColorCards = hand.filter(c => c.suit === trumpCard.suit);
-        // Can only play trump card if no other cards of that suit
         return sameColorCards.length === 1;
       }
     }
@@ -112,10 +124,6 @@ export const canPlayCard = (card, hand, trick, trumpCard, trumpRevealed, isBidWi
 
   // Must follow suit if possible
   if (hasSuit && card.suit !== leadSuit) {
-    // Exception: if trump card and trump not revealed and you're bid winner
-    if (isBidWinner && trumpCard && !trumpRevealed && card.id === trumpCard.id) {
-      return false;
-    }
     return false;
   }
 
@@ -131,6 +139,56 @@ export const canPlayCard = (card, hand, trick, trumpCard, trumpRevealed, isBidWi
 export const calculateBidValidity = (bid, currentHighestBid) => {
   if (bid < 14 || bid > 28) return false;
   if (currentHighestBid && bid <= currentHighestBid) return false;
+  return true;
+};
+
+// Rule 2: Check if player can bid based on team restrictions
+export const canPlayerBid = (playerId, players, gameData) => {
+  if (!gameData.bidWinner) {
+    // First bid, anyone can bid
+    return true;
+  }
+
+  const currentPlayerPosition = players[playerId].position;
+  const bidWinnerPosition = players[gameData.bidWinner].position;
+
+  // Check if they're on the same team (positions 0,2 are team 1; positions 1,3 are team 2)
+  const currentPlayerTeam = currentPlayerPosition % 2;
+  const bidWinnerTeam = bidWinnerPosition % 2;
+
+  // If they're on the same team
+  if (currentPlayerTeam === bidWinnerTeam) {
+    // Check if any opponent has raised the bid since
+    const bids = gameData.bids || {};
+    const bidEntries = Object.entries(bids);
+    
+    // Find when the bid winner made their bid
+    let bidWinnerBidIndex = -1;
+    bidEntries.forEach((entry, index) => {
+      if (entry[0] === gameData.bidWinner && entry[1] === gameData.highestBid) {
+        bidWinnerBidIndex = index;
+      }
+    });
+
+    // Check if any opponent bid after the bid winner
+    let opponentBidAfter = false;
+    for (let i = bidWinnerBidIndex + 1; i < bidEntries.length; i++) {
+      const [bidderId, bidValue] = bidEntries[i];
+      const bidderPosition = players[bidderId].position;
+      const bidderTeam = bidderPosition % 2;
+      
+      // If opponent made a numerical bid (not pass)
+      if (bidderTeam !== bidWinnerTeam && bidValue !== 'pass' && typeof bidValue === 'number') {
+        opponentBidAfter = true;
+        break;
+      }
+    }
+
+    // Teammate can only bid if opponent has bid after the current bid winner
+    return opponentBidAfter;
+  }
+
+  // Not on same team, can always bid
   return true;
 };
 
