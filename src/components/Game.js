@@ -27,6 +27,7 @@ const Game = () => {
   const [bidAmount, setBidAmount] = useState(14);
   const [showConfetti, setShowConfetti] = useState(false);
   const [error, setError] = useState('');
+  const [popupMessage, setPopupMessage] = useState('');
 
   useEffect(() => {
     if (!playerId) {
@@ -34,28 +35,44 @@ const Game = () => {
     }
   }, [playerId]);
 
+  // Listen for game updates
   useEffect(() => {
     if (!roomCode) return;
-
     const gameRef = ref(database, `games/${roomCode}`);
     const unsubscribe = onValue(gameRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
+        // detect trump ask & show popup
+        if (
+          gameData?.trumpAskedBy !== data.trumpAskedBy && 
+          data.trumpAskedBy && 
+          data.trumpAskedBy !== playerId
+        ) {
+            // find player name
+            if (data.trumpAskedBy !== playerId) {
+            const askerName = data.players[data.trumpAskedBy]?.name ?? 'Someone';
+            const trumpCard = data.trumpCard;
+            const trumpText = trumpCard ? `${trumpCard.rank} of ${trumpCard.suit}` : 'Unknown';
+            const msg = `${askerName} asked for trump and the trump is (${trumpText}).`;
+            setPopupMessage(msg);
+            // hide automatically
+            setTimeout(() => setPopupMessage(''), 3000);
+          }
+          
+        }
         setGameData(data);
-        
+        // state mapping
         if (data.phase === 'bidding' || data.phase === 'trumpSelection') {
           setGameState('bidding');
         } else if (data.phase === 'playing') {
           setGameState('playing');
         } else if (data.phase === 'gameOver') {
           setGameState('gameOver');
-          setShowConfetti(true);
         }
       }
     });
-
     return () => unsubscribe();
-  }, [roomCode]);
+  }, [roomCode, playerId, gameData]);
 
   const createRoom = async () => {
     if (!playerName.trim()) {
@@ -122,49 +139,57 @@ const Game = () => {
   };
 
   const startGame = async () => {
-    if (!gameData || Object.keys(gameData.players).length !== 4) {
-      setError('Need exactly 4 players to start');
-      return;
-    }
+  if (!gameData || Object.keys(gameData.players).length !== 4) {
+    setError('Need exactly 4 players to start');
+    return;
+  }
 
-    const deck = shuffleDeck(createDeck());
-    const players = Object.keys(gameData.players);
-    
-    const initialHands = {};
-    const remainingDeck = [...deck];
-    
-    players.forEach((pid, index) => {
-      initialHands[pid] = remainingDeck.slice(index * 4, (index * 4) + 4);
-    });
+  const deck = shuffleDeck(createDeck());
+  const players = Object.keys(gameData.players);
 
-    const remainingCards = {};
-    players.forEach((pid, index) => {
-      remainingCards[pid] = remainingDeck.slice(16 + (index * 4), 16 + (index * 4) + 4);
-    });
+  // Determine dealer (if already set, use next; if first game, player 1)
+  let dealerPosition = gameData.dealerPosition ?? 0;
+  const dealerId = players.find(pid => gameData.players[pid].position === dealerPosition);
 
-    const gameRef = ref(database, `games/${roomCode}`);
-    await update(gameRef, {
-      phase: 'bidding',
-      hands: initialHands,
-      remainingCards: remainingCards,
-      currentBidder: 0,
-      highestBid: 0,
-      bidWinner: null,
-      bids: {},
-      passCount: 0,
-      trumpCard: null,
-      trumpRevealed: false,
-      currentTrick: [],
-      tricks: [],
-      currentPlayer: null,
-      team1Score: 0,
-      team2Score: 0,
-      team1Tricks: [],
-      team2Tricks: [],
-      trumpAskedBy: null,
-      trickCompletedAt: null
-    });
-  };
+  // Deal initial 4 cards
+  const initialHands = {};
+  const remainingDeck = [...deck];
+  players.forEach((pid, index) => {
+    initialHands[pid] = remainingDeck.slice(index * 4, (index * 4) + 4);
+  });
+
+  // Remaining 4 cards
+  const remainingCards = {};
+  players.forEach((pid, index) => {
+    remainingCards[pid] = remainingDeck.slice(16 + (index * 4), 16 + (index * 4) + 4);
+  });
+
+  const gameRef = ref(database, `games/${roomCode}`);
+  await update(gameRef, {
+    phase: 'bidding',
+    hands: initialHands,
+    remainingCards: remainingCards,
+    currentBidder: (dealerPosition + 1) % 4, // first bidder is next to the dealer
+    highestBid: 0,
+    bidWinner: null,
+    bids: {},
+    passCount: 0,
+    trumpCard: null,
+    trumpRevealed: false,
+    currentTrick: [],
+    tricks: [],
+    currentPlayer: null,
+    team1Score: 0,
+    team2Score: 0,
+    team1Tricks: [],
+    team2Tricks: [],
+    trumpAskedBy: null,
+    trickCompletedAt: null,
+    dealerPosition, // store dealer
+    dealerId: dealerId
+  });
+};
+
 
   const placeBid = async (bid) => {
     if (!gameData) return;
@@ -213,33 +238,36 @@ const Game = () => {
   };
 
   const selectTrumpCard = async (card) => {
-    if (!gameData || gameData.bidWinner !== playerId) {
-      setError("Only the bid winner can select trump");
-      return;
-    }
+  if (!gameData || gameData.bidWinner !== playerId) {
+    setError("Only the bid winner can select trump");
+    return;
+  }
 
-    const gameRef = ref(database, `games/${roomCode}`);
-    const players = Object.keys(gameData.players);
-    const bidWinnerPosition = gameData.players[gameData.bidWinner].position;
+  const gameRef = ref(database, `games/${roomCode}`);
+  const players = Object.keys(gameData.players);
+  const dealerPosition = gameData.dealerPosition ?? 0;
 
-    const fullHands = {};
-    players.forEach(pid => {
-      fullHands[pid] = [
-        ...(gameData.hands[pid] || []),
-        ...(gameData.remainingCards[pid] || [])
-      ];
-    });
+  const firstPlayer = (dealerPosition + 1) % 4; // person next to dealer always starts
 
-    await update(gameRef, {
-      trumpCard: card,
-      trumpRevealed: false,
-      phase: 'playing',
-      currentPlayer: bidWinnerPosition,
-      currentTrick: [],
-      hands: fullHands,
-      remainingCards: null
-    });
-  };
+  const fullHands = {};
+  players.forEach(pid => {
+    fullHands[pid] = [
+      ...(gameData.hands[pid] || []),
+      ...(gameData.remainingCards[pid] || [])
+    ];
+  });
+
+  await update(gameRef, {
+    trumpCard: card,
+    trumpRevealed: false,
+    phase: 'playing',
+    currentPlayer: firstPlayer,
+    currentTrick: [],
+    hands: fullHands,
+    remainingCards: null
+  });
+};
+
 
   const askForTrump = async () => {
     if (!gameData) return;
@@ -271,10 +299,10 @@ const Game = () => {
       return;
     }
 
-    // Check if trick is being displayed (10 second delay)
+    // Check if trick is being displayed (2 second delay)
     if (gameData.trickCompletedAt) {
       const timeSinceComplete = Date.now() - gameData.trickCompletedAt;
-      if (timeSinceComplete < 3000) {
+      if (timeSinceComplete < 2000) {
         setError("Please wait while the trick is being displayed");
         return;
       }
@@ -380,33 +408,38 @@ const Game = () => {
   };
 
   const resetGame = async () => {
-    const gameRef = ref(database, `games/${roomCode}`);
-    await update(gameRef, {
-      phase: 'lobby',
-      hands: null,
-      remainingCards: null,
-      currentBidder: null,
-      highestBid: null,
-      bidWinner: null,
-      bids: null,
-      passCount: null,
-      trumpCard: null,
-      trumpRevealed: false,
-      currentTrick: null,
-      tricks: null,
-      currentPlayer: null,
-      team1Score: 0,
-      team2Score: 0,
-      team1Tricks: [],
-      team2Tricks: [],
-      trumpAskedBy: null,
-      trumpPlayedAfterAsk: false,
-      trickCompletedAt: null,
-      nextPlayer: null
-    });
-    setShowConfetti(false);
-    setGameState('lobby');
-  };
+  const nextDealerPosition = ((gameData.dealerPosition ?? 0) + 1) % 4;
+
+  const gameRef = ref(database, `games/${roomCode}`);
+  await update(gameRef, {
+    phase: 'lobby',
+    hands: null,
+    remainingCards: null,
+    currentBidder: null,
+    highestBid: null,
+    bidWinner: null,
+    bids: null,
+    passCount: null,
+    trumpCard: null,
+    trumpRevealed: false,
+    currentTrick: null,
+    tricks: null,
+    currentPlayer: null,
+    team1Score: 0,
+    team2Score: 0,
+    team1Tricks: [],
+    team2Tricks: [],
+    trumpAskedBy: null,
+    trumpPlayedAfterAsk: false,
+    trickCompletedAt: null,
+    nextPlayer: null,
+    dealerPosition: nextDealerPosition
+  });
+
+  setShowConfetti(false);
+  setGameState('lobby');
+};
+
 
   const leaveRoom = async () => {
     if (roomCode && playerId) {
@@ -491,7 +524,11 @@ const Game = () => {
                   {player ? (
                     <>
                       <div className="player-avatar">{player[1].name[0].toUpperCase()}</div>
-                      <div className="player-name">{player[1].name}</div>
+                      <div className="player-name">
+                        {player[1].name}
+                        {gameData?.dealerPosition === player[1].position && <span className="dealer-tag"> (Dealer)</span>}
+                      </div>
+
                       <div className="team-label">Team {position % 2 + 1}</div>
                     </>
                   ) : (
@@ -991,6 +1028,15 @@ const Game = () => {
     );
   };
 
+  const renderPopup = () =>
+    popupMessage && (
+      <div className="popup-overlay">
+        <div className="popup-message">
+          {popupMessage}
+        </div>
+      </div>
+    );
+
   const getSuitSymbol = (suit) => {
     const symbols = {
       hearts: '♥',
@@ -1003,6 +1049,7 @@ const Game = () => {
 
   return (
     <div className="game-container">
+      {renderPopup()}
       {gameState === 'menu' && renderMenu()}
       {gameState === 'lobby' && renderLobby()}
       {gameState === 'bidding' && renderBidding()}
