@@ -14,7 +14,8 @@ import {
   getTotalPoints,
   getCardPoints,
   canAskForTrump,
-  playerHasTrumpSuit
+  playerHasTrumpSuit,
+  sortCards
 } from '../gameLogic';
 
 const Game = () => {
@@ -44,12 +45,12 @@ const Game = () => {
       if (data) {
         // detect trump ask & show popup
         if (
-          gameData?.trumpAskedBy !== data.trumpAskedBy && 
-          data.trumpAskedBy && 
+          gameData?.trumpAskedBy !== data.trumpAskedBy &&
+          data.trumpAskedBy &&
           data.trumpAskedBy !== playerId
         ) {
-            // find player name
-            if (data.trumpAskedBy !== playerId) {
+          // find player name
+          if (data.trumpAskedBy !== playerId) {
             const askerName = data.players[data.trumpAskedBy]?.name ?? 'Someone';
             const trumpCard = data.trumpCard;
             const trumpText = trumpCard ? `${trumpCard.rank} of ${trumpCard.suit}` : 'Unknown';
@@ -58,7 +59,7 @@ const Game = () => {
             // hide automatically
             setTimeout(() => setPopupMessage(''), 3000);
           }
-          
+
         }
         setGameData(data);
         // state mapping
@@ -80,7 +81,7 @@ const Game = () => {
       return;
     }
 
-    const newRoomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const newRoomCode = Math.random().toString(36).substr(2, 2).toUpperCase();
     const gameRef = ref(database, `games/${newRoomCode}`);
 
     const initialGameState = {
@@ -109,17 +110,17 @@ const Game = () => {
     }
 
     const gameRef = ref(database, `games/${roomCode.toUpperCase()}`);
-    
+
     onValue(gameRef, async (snapshot) => {
       const data = snapshot.val();
-      
+
       if (!data) {
         setError('Room not found');
         return;
       }
 
       const playerCount = Object.keys(data.players || {}).length;
-      
+
       if (playerCount >= 4) {
         setError('Room is full');
         return;
@@ -139,56 +140,57 @@ const Game = () => {
   };
 
   const startGame = async () => {
-  if (!gameData || Object.keys(gameData.players).length !== 4) {
-    setError('Need exactly 4 players to start');
-    return;
-  }
+    if (!gameData || Object.keys(gameData.players).length !== 4) {
+      setError('Need exactly 4 players to start');
+      return;
+    }
 
-  const deck = shuffleDeck(createDeck());
-  const players = Object.keys(gameData.players);
+    const deck = shuffleDeck(createDeck());
+    const players = Object.keys(gameData.players);
 
-  // Determine dealer (if already set, use next; if first game, player 1)
-  let dealerPosition = gameData.dealerPosition ?? 0;
-  const dealerId = players.find(pid => gameData.players[pid].position === dealerPosition);
+    // Determine dealer (if already set, use next; if first game, player 1)
+    let dealerPosition = gameData.dealerPosition ?? 0;
+    const dealerId = players.find(pid => gameData.players[pid].position === dealerPosition);
 
-  // Deal initial 4 cards
-  const initialHands = {};
-  const remainingDeck = [...deck];
-  players.forEach((pid, index) => {
-    initialHands[pid] = remainingDeck.slice(index * 4, (index * 4) + 4);
-  });
+    // Deal initial 4 cards
+    const initialHands = {};
+    players.forEach((pid, i) => {
+      const cards = deck.slice(i * 4, i * 4 + 4);
+      initialHands[pid] = sortCards(cards);  // ← SORT HERE
+    });
 
-  // Remaining 4 cards
-  const remainingCards = {};
-  players.forEach((pid, index) => {
-    remainingCards[pid] = remainingDeck.slice(16 + (index * 4), 16 + (index * 4) + 4);
-  });
+    // Remaining 4 cards
+    const remainingCards = {};
+    players.forEach((pid, i) => {
+      const cards = deck.slice(16 + i * 4, 20 + i * 4);
+      remainingCards[pid] = sortCards(cards);  // ← SORT HERE
+    });
 
-  const gameRef = ref(database, `games/${roomCode}`);
-  await update(gameRef, {
-    phase: 'bidding',
-    hands: initialHands,
-    remainingCards: remainingCards,
-    currentBidder: (dealerPosition + 1) % 4, // first bidder is next to the dealer
-    highestBid: 0,
-    bidWinner: null,
-    bids: {},
-    passCount: 0,
-    trumpCard: null,
-    trumpRevealed: false,
-    currentTrick: [],
-    tricks: [],
-    currentPlayer: null,
-    team1Score: 0,
-    team2Score: 0,
-    team1Tricks: [],
-    team2Tricks: [],
-    trumpAskedBy: null,
-    trickCompletedAt: null,
-    dealerPosition, // store dealer
-    dealerId: dealerId
-  });
-};
+    const gameRef = ref(database, `games/${roomCode}`);
+    await update(gameRef, {
+      phase: 'bidding',
+      hands: initialHands,
+      remainingCards: remainingCards,
+      currentBidder: (dealerPosition + 1) % 4, // first bidder is next to the dealer
+      highestBid: 0,
+      bidWinner: null,
+      bids: {},
+      passCount: 0,
+      trumpCard: null,
+      trumpRevealed: false,
+      currentTrick: [],
+      tricks: [],
+      currentPlayer: null,
+      team1Score: 0,
+      team2Score: 0,
+      team1Tricks: [],
+      team2Tricks: [],
+      trumpAskedBy: null,
+      trickCompletedAt: null,
+      dealerPosition, // store dealer
+      dealerId: dealerId
+    });
+  };
 
 
   const placeBid = async (bid) => {
@@ -238,35 +240,37 @@ const Game = () => {
   };
 
   const selectTrumpCard = async (card) => {
-  if (!gameData || gameData.bidWinner !== playerId) {
-    setError("Only the bid winner can select trump");
-    return;
-  }
+    if (!gameData || gameData.bidWinner !== playerId) {
+      setError("Only the bid winner can select trump");
+      return;
+    }
 
-  const gameRef = ref(database, `games/${roomCode}`);
-  const players = Object.keys(gameData.players);
-  const dealerPosition = gameData.dealerPosition ?? 0;
+    const gameRef = ref(database, `games/${roomCode}`);
+    const players = Object.keys(gameData.players);
+    const dealerPosition = gameData.dealerPosition ?? 0;
 
-  const firstPlayer = (dealerPosition + 1) % 4; // person next to dealer always starts
+    const firstPlayer = (dealerPosition + 1) % 4; // person next to dealer always starts
 
-  const fullHands = {};
-  players.forEach(pid => {
-    fullHands[pid] = [
-      ...(gameData.hands[pid] || []),
-      ...(gameData.remainingCards[pid] || [])
-    ];
-  });
+    // Merge and SORT full hands
+    const fullHands = {};
+    Object.keys(gameData.players).forEach(pid => {
+      const merged = [
+        ...(gameData.hands[pid] || []),
+        ...(gameData.remainingCards[pid] || [])
+      ];
+      fullHands[pid] = sortCards(merged);
+    });
 
-  await update(gameRef, {
-    trumpCard: card,
-    trumpRevealed: false,
-    phase: 'playing',
-    currentPlayer: firstPlayer,
-    currentTrick: [],
-    hands: fullHands,
-    remainingCards: null
-  });
-};
+    await update(gameRef, {
+      trumpCard: card,
+      trumpRevealed: false,
+      phase: 'playing',
+      currentPlayer: firstPlayer,
+      currentTrick: [],
+      hands: fullHands,
+      remainingCards: null
+    });
+  };
 
 
   const askForTrump = async () => {
@@ -293,7 +297,7 @@ const Game = () => {
     if (!gameData) return;
 
     const currentPlayerPosition = gameData.players[playerId].position;
-    
+
     if (currentPlayerPosition !== gameData.currentPlayer) {
       setError("Not your turn");
       return;
@@ -302,7 +306,7 @@ const Game = () => {
     // Check if trick is being displayed (2 second delay)
     if (gameData.trickCompletedAt) {
       const timeSinceComplete = Date.now() - gameData.trickCompletedAt;
-      if (timeSinceComplete < 2000) {
+      if (timeSinceComplete < 1000) {
         setError("Please wait while the trick is being displayed");
         return;
       }
@@ -331,11 +335,12 @@ const Game = () => {
     }
 
     const newHand = playerHand.filter(c => c.id !== card.id);
+    const sortedHand = sortCards(newHand);
     const newTrick = [...currentTrick, { playerId, card, position: currentPlayerPosition }];
 
     const gameRef = ref(database, `games/${roomCode}`);
     const updates = {
-      [`hands/${playerId}`]: newHand,
+      [`hands/${playerId}`]: sortedHand,
       currentTrick: newTrick
     };
 
@@ -358,12 +363,12 @@ const Game = () => {
       const winningTeam = winnerPosition % 2 === 0 ? 'team1' : 'team2';
       const allTricks = [...(gameData.tricks || []), newTrick];
       const teamTricks = [...(gameData[`${winningTeam}Tricks`] || []), newTrick];
-      
+
       updates.tricks = allTricks;
       updates[`${winningTeam}Tricks`] = teamTricks;
       updates.trumpAskedBy = null;
       updates.trumpPlayedAfterAsk = false;
-      
+
       // Set trick completed timestamp for 10 second display
       updates.trickCompletedAt = Date.now();
       updates.nextPlayer = winnerPosition;
@@ -374,7 +379,7 @@ const Game = () => {
       if (allTricks.length === 8) {
         const team1Points = getTotalPoints(gameData.team1Tricks || []);
         const team2Points = getTotalPoints(gameData.team2Tricks || []);
-        
+
         const finalTeam1Points = winningTeam === 'team1' ? team1Points + trickPoints : team1Points;
         const finalTeam2Points = winningTeam === 'team2' ? team2Points + trickPoints : team2Points;
 
@@ -408,37 +413,37 @@ const Game = () => {
   };
 
   const resetGame = async () => {
-  const nextDealerPosition = ((gameData.dealerPosition ?? 0) + 1) % 4;
+    const nextDealerPosition = ((gameData.dealerPosition ?? 0) + 1) % 4;
 
-  const gameRef = ref(database, `games/${roomCode}`);
-  await update(gameRef, {
-    phase: 'lobby',
-    hands: null,
-    remainingCards: null,
-    currentBidder: null,
-    highestBid: null,
-    bidWinner: null,
-    bids: null,
-    passCount: null,
-    trumpCard: null,
-    trumpRevealed: false,
-    currentTrick: null,
-    tricks: null,
-    currentPlayer: null,
-    team1Score: 0,
-    team2Score: 0,
-    team1Tricks: [],
-    team2Tricks: [],
-    trumpAskedBy: null,
-    trumpPlayedAfterAsk: false,
-    trickCompletedAt: null,
-    nextPlayer: null,
-    dealerPosition: nextDealerPosition
-  });
+    const gameRef = ref(database, `games/${roomCode}`);
+    await update(gameRef, {
+      phase: 'lobby',
+      hands: null,
+      remainingCards: null,
+      currentBidder: null,
+      highestBid: null,
+      bidWinner: null,
+      bids: null,
+      passCount: null,
+      trumpCard: null,
+      trumpRevealed: false,
+      currentTrick: null,
+      tricks: null,
+      currentPlayer: null,
+      team1Score: 0,
+      team2Score: 0,
+      team1Tricks: [],
+      team2Tricks: [],
+      trumpAskedBy: null,
+      trumpPlayedAfterAsk: false,
+      trickCompletedAt: null,
+      nextPlayer: null,
+      dealerPosition: nextDealerPosition
+    });
 
-  setShowConfetti(false);
-  setGameState('lobby');
-};
+    setShowConfetti(false);
+    setGameState('lobby');
+  };
 
 
   const leaveRoom = async () => {
@@ -453,14 +458,14 @@ const Game = () => {
 
   const renderMenu = () => (
     <div className="menu-container">
-      <motion.div 
+      <motion.div
         className="menu-card"
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
       >
         <h1 className="game-title">28 Card Game</h1>
         <p className="game-subtitle">Classic Indian Trump Card Game</p>
-        
+
         <div className="input-group">
           <input
             type="text"
@@ -503,7 +508,7 @@ const Game = () => {
 
     return (
       <div className="lobby-container">
-        <motion.div 
+        <motion.div
           className="lobby-card"
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -518,7 +523,7 @@ const Game = () => {
               const player = Object.entries(players).find(
                 ([_, p]) => p.position === position
               );
-              
+
               return (
                 <div key={position} className={`player-slot ${player ? 'filled' : 'empty'}`}>
                   {player ? (
@@ -584,26 +589,26 @@ const Game = () => {
 
       return (
         <div className="trump-selection-container">
-          <motion.div 
+          <motion.div
             className="trump-selection-card"
             initial={{ scale: 0.8 }}
             animate={{ scale: 1 }}
           >
             <h2>Trump Card Selection</h2>
-            
+
             {isBidWinner ? (
               <>
                 <p className="bid-info">🏆 Congratulations! Your bid: <strong>{gameData.highestBid} points</strong></p>
                 <p className="trump-instruction">Select any card from your hand as the trump card</p>
                 <p className="trump-note">⚠️ This card's suit will be trump. The card will be hidden from other players.</p>
                 <p className="trump-note">⚠️ You cannot lead with trump suit cards until trump is revealed.</p>
-                
+
                 <div className="initial-cards-display">
                   <h4>Select Your Trump Card:</h4>
                   <div className="cards-row">
                     {myInitialHand.map(card => (
-                      <motion.div 
-                        key={card.id} 
+                      <motion.div
+                        key={card.id}
                         className="card-small selectable"
                         onClick={() => selectTrumpCard(card)}
                         whileHover={{ scale: 1.1, y: -10 }}
@@ -620,7 +625,7 @@ const Game = () => {
                 <p className="bid-info">
                   Winner: <strong>{players[gameData.bidWinner]?.name}</strong> with bid of <strong>{gameData.highestBid}</strong>
                 </p>
-                
+
                 <div className="initial-cards-display">
                   <h4>Your Cards:</h4>
                   <div className="cards-row">
@@ -642,13 +647,13 @@ const Game = () => {
 
     return (
       <div className="bidding-container">
-        <motion.div 
+        <motion.div
           className="bidding-card"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
         >
           <h2>Bidding Phase</h2>
-          
+
           <div className="game-instructions">
             <h4>📋 Game Rules:</h4>
             <ul>
@@ -683,7 +688,7 @@ const Game = () => {
             {Object.entries(players)
               .sort((a, b) => a[1].position - b[1].position)
               .map(([pid, player]) => (
-                <div 
+                <div
                   key={pid}
                   className={`player-bid-status ${player.position === currentBidderPos ? 'active' : ''}`}
                 >
@@ -704,7 +709,7 @@ const Game = () => {
                   ⚠️ Your teammate holds the highest bid. Wait for an opponent to raise before you can bid.
                 </div>
               )}
-              
+
               <div className="bid-input-group">
                 <input
                   type="range"
@@ -717,10 +722,10 @@ const Game = () => {
                 />
                 <span className="bid-amount-display">{bidAmount}</span>
               </div>
-              
+
               <div className="bid-buttons">
-                <button 
-                  onClick={() => placeBid(bidAmount)} 
+                <button
+                  onClick={() => placeBid(bidAmount)}
                   className="btn btn-primary"
                   disabled={!canBid || !calculateBidValidity(bidAmount, gameData?.highestBid)}
                 >
@@ -759,7 +764,7 @@ const Game = () => {
     const mustPlayTrump = gameData?.trumpAskedBy === playerId && !gameData?.trumpPlayedAfterAsk;
 
     // Check if trick is being displayed
-    const trickDisplaying = gameData?.trickCompletedAt && 
+    const trickDisplaying = gameData?.trickCompletedAt &&
       (Date.now() - gameData.trickCompletedAt < 10000) &&
       currentTrick.length === 4;
 
@@ -844,7 +849,7 @@ const Game = () => {
 
         <div className="hand-container">
           <h3>
-            Your Hand 
+            Your Hand
             {isMyTurn && !trickDisplaying && <span className="your-turn-indicator">● Your Turn</span>}
           </h3>
           <div className="hand-cards">
@@ -852,7 +857,7 @@ const Game = () => {
               {myHand.map((card, index) => {
                 const isTrumpCard = isBidWinner && trumpCard && card.id === trumpCard.id;
                 const canPlay = isMyTurn && !trickDisplaying && canPlayCard(card, myHand, currentTrick, trumpCard, trumpRevealed, isBidWinner);
-                
+
                 return (
                   <motion.div
                     key={card.id}
@@ -925,21 +930,21 @@ const Game = () => {
     const team1Score = gameData?.team1Score || 0;
     const team2Score = gameData?.team2Score || 0;
 
-    const winningTeam = biddingTeam === 1 
+    const winningTeam = biddingTeam === 1
       ? (bidMade ? 1 : 2)
       : (bidMade ? 2 : 1);
 
     return (
       <div className="game-over-container">
         {showConfetti && <Confetti recycle={false} numberOfPieces={500} />}
-        
-        <motion.div 
+
+        <motion.div
           className="game-over-card"
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
         >
           <h1 className="game-over-title">Game Over!</h1>
-          
+
           <div className="trump-reveal-final">
             <p>Trump Card was: {renderMiniCard(gameData?.trumpCard)}</p>
           </div>
@@ -950,7 +955,7 @@ const Game = () => {
               <p className="score-number">{team1Score}</p>
               {winningTeam === 1 && <p className="winner-badge">🏆 Winners!</p>}
             </div>
-            
+
             <div className={`team-final-score ${winningTeam === 2 ? 'winner' : ''}`}>
               <h3>Team 2</h3>
               <p className="score-number">{team2Score}</p>
@@ -989,9 +994,9 @@ const Game = () => {
     };
 
     return (
-      <div 
-        className="card" 
-        style={{ 
+      <div
+        className="card"
+        style={{
           color: suitColors[card.suit],
           cursor: isInHand ? 'pointer' : 'default'
         }}
@@ -1013,7 +1018,7 @@ const Game = () => {
 
   const renderMiniCard = (card) => {
     if (!card) return null;
-    
+
     const suitColors = {
       hearts: '#e74c3c',
       diamonds: '#e74c3c',

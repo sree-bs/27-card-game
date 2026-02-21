@@ -1,17 +1,17 @@
 // Card suits and ranks for 28 card game (32 cards total)
 export const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
-export const RANKS = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+export const RANKS = ['7', '8', 'Q', 'K', '10', 'A', '9', 'J' ];
 
 // Card values in 28 game
 export const CARD_VALUES = {
-  'J': 3,
-  '9': 2,
-  'A': 1,
-  '10': 1,
-  'K': 0,
-  'Q': 0,
-  '8': 0,
-  '7': 0
+  'J': 8,
+  '9': 7,
+  'A': 6,
+  '10': 5,
+  'K': 4,
+  'Q': 3,
+  '8': 2,
+  '7': 1
 };
 
 // Points per card
@@ -24,6 +24,35 @@ export const CARD_POINTS = {
   'Q': 0,
   '8': 0,
   '7': 0
+};
+
+// Sorting priority (higher number = higher priority)
+const RANK_PRIORITY = {
+  'J': 7,
+  '9': 6,
+  'A': 5,
+  '10': 4,
+  'K': 3,
+  'Q': 2,
+  '8': 1,
+  '7': 0
+};
+const SUIT_PRIORITY = {
+  'spades': 3,
+  'hearts': 2,
+  'diamonds': 1,
+  'clubs': 0
+};
+
+export const sortCards = (cards) => {
+  return [...cards].sort((a, b) => {
+    // First sort by suit
+    const suitDiff = SUIT_PRIORITY[b.suit] - SUIT_PRIORITY[a.suit];
+    if (suitDiff !== 0) return suitDiff;
+
+    // Then sort by rank inside suit
+    return RANK_PRIORITY[b.rank] - RANK_PRIORITY[a.rank];
+  });
 };
 
 export const createDeck = () => {
