@@ -246,7 +246,6 @@ const Game = () => {
     }
 
     const gameRef = ref(database, `games/${roomCode}`);
-    const players = Object.keys(gameData.players);
     const dealerPosition = gameData.dealerPosition ?? 0;
 
     const firstPlayer = (dealerPosition + 1) % 4; // person next to dealer always starts
