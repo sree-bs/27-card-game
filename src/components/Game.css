@@ -123,8 +123,8 @@ body {
 }
 
 .btn-secondary {
-  background: #e0e0e0;
-  color: #333;
+  background: #007bff;
+  color: #f8f8f8;
 }
 
 .btn-secondary:hover {
@@ -612,7 +612,7 @@ body {
 }
 
 .trick-position.pos-2 {
-  top: 0;
+  top: -40px;
   left: 50%;
   transform: translateX(-50%);
 }

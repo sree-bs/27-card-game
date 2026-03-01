@@ -753,6 +753,13 @@ const Game = () => {
       (Date.now() - gameData.trickCompletedAt < 5000) &&
       currentTrick.length === 4;
 
+    const playerList = Object.values(players || {});
+
+    const playersByPosition = {};
+    playerList.forEach(player => {
+      playersByPosition[player.position] = player;
+    });  
+
     return (
       <div className="playing-container">
         <div className="game-header">
@@ -892,12 +899,17 @@ const Game = () => {
 
         <div className="score-panel">
           <div className="team-score">
-            <h4>Team 1 (Players 1 & 3)</h4>
+            <h4>
+              Team 1 ({playersByPosition[0]?.name} & {playersByPosition[2]?.name})
+            </h4>
             <p>Tricks Won: {gameData?.team1Tricks?.length || 0}</p>
             <p>Points: {getTotalPoints(gameData?.team1Tricks || [])}</p>
           </div>
+
           <div className="team-score">
-            <h4>Team 2 (Players 2 & 4)</h4>
+            <h4>
+              Team 2 ({playersByPosition[1]?.name} & {playersByPosition[3]?.name})
+            </h4>
             <p>Tricks Won: {gameData?.team2Tricks?.length || 0}</p>
             <p>Points: {getTotalPoints(gameData?.team2Tricks || [])}</p>
           </div>
