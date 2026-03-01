@@ -81,7 +81,7 @@ const Game = () => {
       return;
     }
 
-    const newRoomCode = Math.random().toString(36).substr(2, 2).toUpperCase();
+    const newRoomCode = Math.random().toString(36).substr(2, 4).toUpperCase();
     const gameRef = ref(database, `games/${newRoomCode}`);
 
     const initialGameState = {
@@ -305,7 +305,7 @@ const Game = () => {
     // Check if trick is being displayed (2 second delay)
     if (gameData.trickCompletedAt) {
       const timeSinceComplete = Date.now() - gameData.trickCompletedAt;
-      if (timeSinceComplete < 1000) {
+      if (timeSinceComplete < 5000) {
         setError("Please wait while the trick is being displayed");
         return;
       }
@@ -599,8 +599,6 @@ const Game = () => {
               <>
                 <p className="bid-info">🏆 Congratulations! Your bid: <strong>{gameData.highestBid} points</strong></p>
                 <p className="trump-instruction">Select any card from your hand as the trump card</p>
-                <p className="trump-note">⚠️ This card's suit will be trump. The card will be hidden from other players.</p>
-                <p className="trump-note">⚠️ You cannot lead with trump suit cards until trump is revealed.</p>
 
                 <div className="initial-cards-display">
                   <h4>Select Your Trump Card:</h4>
@@ -652,18 +650,6 @@ const Game = () => {
           animate={{ opacity: 1 }}
         >
           <h2>Bidding Phase</h2>
-
-          <div className="game-instructions">
-            <h4>📋 Game Rules:</h4>
-            <ul>
-              <li>✓ You have 4 cards to start</li>
-              <li>✓ Bid between 14-28 points (or pass)</li>
-              <li>✓ Teammates can't overbid each other (opponent must raise first)</li>
-              <li>✓ Bid winner selects a trump card (hidden from others)</li>
-              <li>✓ Bid winner cannot lead with trump suit until revealed</li>
-              <li>✓ You'll get 4 more cards after trump selection</li>
-            </ul>
-          </div>
 
           <div className="bidding-info">
             <p>Current Highest Bid: <strong>{gameData?.highestBid || 'None'}</strong></p>
@@ -764,7 +750,7 @@ const Game = () => {
 
     // Check if trick is being displayed
     const trickDisplaying = gameData?.trickCompletedAt &&
-      (Date.now() - gameData.trickCompletedAt < 10000) &&
+      (Date.now() - gameData.trickCompletedAt < 5000) &&
       currentTrick.length === 4;
 
     return (
